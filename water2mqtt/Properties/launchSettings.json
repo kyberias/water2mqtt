@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "water2mqtt": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+.vs
+bin
+obj
+appsettings.Production.json
+decCaptures/
+decCapturesBW/
+decCapturesT/
+numCaptures/
+*.jpg
+*.png
+*.log
+*.user
+knowngood.txt
