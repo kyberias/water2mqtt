@@ -1,4 +1,6 @@
-﻿namespace water2mqtt;
+﻿using System.Globalization;
+
+namespace water2mqtt;
 
 public class ReadingStorageFile : IReadingStorage
 {
@@ -12,7 +14,7 @@ public class ReadingStorageFile : IReadingStorage
         {
             var knownTxt = File.ReadAllText("knowngood.txt");
             var parts = knownTxt.Split();
-            var parsed = decimal.Parse(parts[0]);
+            var parsed = decimal.Parse(parts[0], CultureInfo.InvariantCulture);
 
             LatestGood = Volume.FromCubicMeters(parsed);
             LatestGoodTimestamp = DateTimeOffset.Parse(parts[1]);
@@ -27,8 +29,10 @@ public class ReadingStorageFile : IReadingStorage
         {
             latestGood = value;
             LatestGoodTimestamp = time.GetUtcNow();
-            File.WriteAllText("knowngood.txt", $"{value.ToCubicMeters()} {LatestGoodTimestamp:O}");
-            
+            File.WriteAllText(
+                "knowngood.txt",
+                $"{value.ToCubicMeters().ToString(CultureInfo.InvariantCulture)} {LatestGoodTimestamp:O}"
+            );
         }
     }
 
