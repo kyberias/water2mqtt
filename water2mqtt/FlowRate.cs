@@ -9,7 +9,7 @@ public class FlowRate(Volume volume, TimeSpan timeSpan)
     public decimal ToLitersPerMinute()
     {
         var liters = volume.ToLiters();
-        var minutes = (decimal)Timespan.TotalMinutes;
+        var minutes = (decimal)Timespan.Ticks / TimeSpan.TicksPerMinute;
 
         return liters / minutes;
     }

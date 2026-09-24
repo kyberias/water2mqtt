@@ -123,6 +123,31 @@ public class ErrorCorrectingProxyTest
         await proxy.StopAsync(cancel.Token);
     }
 
+    [Fact]
+    public async Task ReportsUsageAfterTenSecondsOfInactivity()
+    {
+        using var cancel = new CancellationTokenSource(DefaultTimeout);
+        SetupInitial(Volume.FromCubicMeters(1m));
+
+        await proxy.StartAsync(cancel.Token);
+        await proxy.GetNextValue(cancel.Token);
+
+        AdvanceTime(TimeSpan.FromSeconds(2));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.001m)));
+        await proxy.GetNextValue(cancel.Token);
+
+        AdvanceTime(TimeSpan.FromSeconds(10));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.001m)));
+        var reading = await proxy.GetNextValue(cancel.Token);
+
+        var usage = Assert.IsType<WaterUsage>(reading.CompletedUsage);
+        Assert.Equal(1m, usage.Volume.ToLiters());
+        Assert.Equal(TimeSpan.FromSeconds(2), usage.Duration);
+        Assert.Equal(30m, usage.FlowRate.ToLitersPerMinute(), 3);
+
+        await proxy.StopAsync(cancel.Token);
+    }
+
     [Theory]
     [InlineData(1.0, 0.000, 0)]
     public async Task ShouldReportFlowrate(double start, double next, double LperMin)

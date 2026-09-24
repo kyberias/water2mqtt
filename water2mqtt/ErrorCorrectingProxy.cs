@@ -56,18 +56,24 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
         }
 
         FixedSizeList<(DateTimeOffset, Volume)> previouslyReported = new FixedSizeList<(DateTimeOffset, Volume)>(5);
+        var inactivityThreshold = TimeSpan.FromSeconds(10);
+        DateTimeOffset? usageStart = null;
+        DateTimeOffset? usageEnd = null;
+        Volume? usageStartValue = null;
 
         while (!cancel.IsCancellationRequested)
         {
             var rawReading = await meter.GetNextValue(cancel);
             var proposedDecimals = rawReading.Volume;
+            var now = time.GetUtcNow();
 
             bool goodValueChanged = false;
+            WaterUsage? completedUsage = null;
 
             if (knownGoodDecimals == null)
             {
                 knownGoodDecimals = proposedDecimals;
-                knownGoodValueTimestamp = time.GetUtcNow();
+                knownGoodValueTimestamp = now;
                 goodValueChanged = true;
             }
             else if (knownGoodDecimals != null)
@@ -87,7 +93,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                     log.LogWarning("Detected potential cubit-meter rollover.");
                 }
 
-                var timeDiff = time.GetUtcNow() - knownGoodValueTimestamp.Value;
+                var timeDiff = now - knownGoodValueTimestamp.Value;
                 var maxFlow = FlowRate.FromLitersPerMinute(50);
 
                 if (timeDiff <= TimeSpan.Zero)
@@ -117,6 +123,10 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                     if (detectedDecimalChange > Volume.Zero)
                     {
                         goodValueChanged = true;
+
+                        usageStart ??= knownGoodValueTimestamp;
+                        usageStartValue ??= knownInteger + knownGoodDecimals;
+                        usageEnd = now;
                     }
 
                     knownGoodDecimals += detectedDecimalChange;
@@ -128,7 +138,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                     }
 
                     //knownInteger += Volume.FromCubicMeters(detectedIntegerChange);
-                    knownGoodValueTimestamp = time.GetUtcNow();
+                    knownGoodValueTimestamp = now;
 
                     /*if (newReading == tooLarge && (knownGoodValueTimestamp - tooLargeTimeStamp) > TimeSpan.FromMinutes(1))
                     {
@@ -143,12 +153,20 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
             {
                 var total = knownInteger + knownGoodDecimals;
 
+                if (!goodValueChanged && usageStart != null && usageEnd != null && usageStartValue != null &&
+                    now - usageEnd >= inactivityThreshold)
+                {
+                    completedUsage = new WaterUsage(total - usageStartValue, usageStart.Value, usageEnd.Value);
+                    usageStart = null;
+                    usageEnd = null;
+                    usageStartValue = null;
+                }
+
                 log.LogInformation($"Known good {total}");
                 storage.LatestGood = total;
                 //await File.WriteAllTextAsync("knowngood.txt", $"{total.ToCubicMeters()} {knownGoodValueTimestamp:O}");
 
                 FlowRate? flowRate = null;
-                var now = time.GetUtcNow();
                 if (previouslyReported.Count > 2)
                 {
                     var timeDiff = now - previouslyReported.Items[0].Item1;
@@ -159,7 +177,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                 }
 
                 goodValues.Post(new MeterReading(total, flowRate,
-                    goodValueChanged ? rawReading.ImageJpeg : null));
+                    goodValueChanged ? rawReading.ImageJpeg : null, completedUsage));
 
                 previouslyReported.Add((now, total));
             }

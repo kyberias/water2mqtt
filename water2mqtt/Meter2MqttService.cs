@@ -98,6 +98,23 @@ public class Meter2MqttService : BackgroundService
                     }, cancel);
                 }
 
+                if (reading.CompletedUsage != null)
+                {
+                    var usage = reading.CompletedUsage;
+                    var usagePayload = JsonSerializer.Serialize(new
+                    {
+                        event_type = "usage_completed",
+                        volume = usage.Volume.ToLiters(),
+                        duration = (int)usage.Duration.TotalSeconds,
+                        flowrate = Math.Round(usage.FlowRate.ToLitersPerMinute(), 3),
+                        start = usage.Start,
+                        end = usage.End
+                    });
+
+                    await client.PublishStringAsync(topicRoot + "/WaterUsage", usagePayload,
+                        cancellationToken: cancel);
+                }
+
                 log.LogInformation($"Published new value: {reading.Volume}");
                 break;
             }
@@ -176,6 +193,15 @@ public class Meter2MqttService : BackgroundService
             unique_id = uniqueId + "WaterMeterImage",
         };
 
+        var usageAutoConfig = new
+        {
+            platform = "event",
+            state_topic = mqttTopicRoot + "/WaterUsage",
+            event_types = new[] { "usage_completed" },
+            name = "Water usage completed",
+            unique_id = uniqueId + "WaterUsageCompleted",
+        };
+
         var configTopic = $"homeassistant/device/{uniqueId}/config";
 
         var deviceDiscoveryPayload = new
@@ -192,7 +218,8 @@ public class Meter2MqttService : BackgroundService
                 ZennerMNKWaterConsumption = waterAutoConfig,
                 ZennerMNKWaterFlowRate = flowRateAutoConfig,
                 ZennerMNKWaterFaucet = waterOnOffAutoConfig,
-                ZennerMNKWaterMeterImage = imageAutoConfig
+                ZennerMNKWaterMeterImage = imageAutoConfig,
+                ZennerMNKWaterUsageCompleted = usageAutoConfig
             }
         };
 
