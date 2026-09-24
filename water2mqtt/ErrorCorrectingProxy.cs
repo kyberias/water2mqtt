@@ -158,7 +158,8 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                     }
                 }
 
-                goodValues.Post(new MeterReading(total, flowRate, rawReading.ImageJpeg));
+                goodValues.Post(new MeterReading(total, flowRate,
+                    goodValueChanged ? rawReading.ImageJpeg : null));
 
                 previouslyReported.Add((now, total));
             }

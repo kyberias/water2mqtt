@@ -96,11 +96,29 @@ public class ErrorCorrectingProxyTest
         await proxy.GetNextValue(cancel.Token);
 
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.0001m), imageJpeg));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.2356m), imageJpeg));
 
         var reading = await proxy.GetNextValue(cancel.Token);
 
         Assert.Same(imageJpeg, reading.ImageJpeg);
+
+        await proxy.StopAsync(cancel.Token);
+    }
+
+    [Fact]
+    public async Task UnchangedReadingDoesNotIncludeSourceImage()
+    {
+        using var cancel = new CancellationTokenSource(DefaultTimeout);
+
+        await proxy.StartAsync(cancel.Token);
+        await proxy.GetNextValue(cancel.Token);
+
+        AdvanceTime(TimeSpan.FromMinutes(1));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0m), new byte[] { 1, 2, 3 }));
+
+        var reading = await proxy.GetNextValue(cancel.Token);
+
+        Assert.Null(reading.ImageJpeg);
 
         await proxy.StopAsync(cancel.Token);
     }

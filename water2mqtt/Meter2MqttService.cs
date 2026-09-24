@@ -94,8 +94,7 @@ public class Meter2MqttService : BackgroundService
                     await client.PublishAsync(new MqttApplicationMessage
                     {
                         Topic = topicRoot + "/WaterMeterImage",
-                        PayloadSegment = reading.ImageJpeg,
-                        ContentType = "image/jpeg"
+                        PayloadSegment = reading.ImageJpeg
                     }, cancel);
                 }
 
