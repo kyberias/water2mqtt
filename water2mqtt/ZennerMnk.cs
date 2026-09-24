@@ -22,7 +22,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
     public string Manufacturer => "Zenner";
     public string Model => "MNK";
 
-    private BufferBlock<Volume> values = new();
+    private BufferBlock<RawMeterReading> values = new();
 
     public static decimal? AnglesToDecimals(IList<double> angles)
     {
@@ -301,7 +301,9 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
             {
                 log.LogTrace($"Proposed decimals: {proposedDecimals}");
 
-                values.Post(Volume.FromCubicMeters(proposedDecimals.Value));
+                values.Post(new RawMeterReading(
+                    Volume.FromCubicMeters(proposedDecimals.Value),
+                    CvInvoke.Imencode(".jpg", rotated)));
             }
 
             log.LogTrace($"Analysis time: {DateTime.UtcNow - startOfAnalysis}");
@@ -344,7 +346,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
         return Run(null, stoppingToken);
     }
 
-    Task<Volume> IWaterMeterRaw.GetNextValue(CancellationToken cancel)
+    Task<RawMeterReading> IWaterMeterRaw.GetNextValue(CancellationToken cancel)
     {
         return values.ReceiveAsync(cancel);
     }

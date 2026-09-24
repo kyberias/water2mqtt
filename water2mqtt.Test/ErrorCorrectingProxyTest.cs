@@ -15,7 +15,7 @@ public class ErrorCorrectingProxyTest
     private DateTimeOffset initialTime = new (2025, 2, 9, 1, 2, 3, TimeSpan.Zero);
     private Mock<IReadingStorage> storage = new();
     private Mock<TimeProvider> time = new();
-    private BufferBlock<Volume> meterReadings = new();
+    private BufferBlock<RawMeterReading> meterReadings = new();
     private ITestOutputHelper output;
 
     public ErrorCorrectingProxyTest(ITestOutputHelper output)
@@ -79,9 +79,28 @@ public class ErrorCorrectingProxyTest
         Assert.Equal((decimal)start, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
 
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(Volume.FromCubicMeters((decimal)next));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)next)));
 
         Assert.Equal((decimal)(start+next), (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
+
+        await proxy.StopAsync(cancel.Token);
+    }
+
+    [Fact]
+    public async Task AcceptedReadingIncludesSourceImage()
+    {
+        using var cancel = new CancellationTokenSource(DefaultTimeout);
+        var imageJpeg = new byte[] { 1, 2, 3 };
+
+        await proxy.StartAsync(cancel.Token);
+        await proxy.GetNextValue(cancel.Token);
+
+        AdvanceTime(TimeSpan.FromMinutes(1));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.0001m), imageJpeg));
+
+        var reading = await proxy.GetNextValue(cancel.Token);
+
+        Assert.Same(imageJpeg, reading.ImageJpeg);
 
         await proxy.StopAsync(cancel.Token);
     }
@@ -98,18 +117,18 @@ public class ErrorCorrectingProxyTest
 
         Assert.Equal((decimal)start, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(Volume.FromCubicMeters((decimal)start));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)start)));
 
         Assert.Equal((decimal)start, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(Volume.FromCubicMeters((decimal)start));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)start)));
         Assert.Equal((decimal)start, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(Volume.FromCubicMeters((decimal)start));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)start)));
         Assert.Equal((decimal)start, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
 
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(Volume.FromCubicMeters((decimal)next));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)next)));
 
         var nextValue = await proxy.GetNextValue(cancel.Token);
 
@@ -139,8 +158,8 @@ public class ErrorCorrectingProxyTest
 
         AdvanceTime(TimeSpan.FromMinutes(10));
 
-        meterReadings.Post(Volume.FromCubicMeters((decimal)ignored));
-        meterReadings.Post(Volume.FromCubicMeters((decimal)nextGood));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)ignored)));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)nextGood)));
 
         Assert.Equal((decimal)start, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
         Assert.Equal((decimal)1.001, (await proxy.GetNextValue(cancel.Token)).Volume.ToCubicMeters());
@@ -167,7 +186,7 @@ public class ErrorCorrectingProxyTest
 
         AdvanceTime(TimeSpan.FromMinutes(10));
 
-        meterReadings.Post(Volume.FromCubicMeters((decimal)nextGood));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)nextGood)));
 
         await AssertNext(expected, cancel.Token);
 
@@ -195,7 +214,7 @@ public class ErrorCorrectingProxyTest
             var nextGood = nextGoods[i];
             var expected = expecteds[i];
             
-            meterReadings.Post(Volume.FromCubicMeters((decimal)nextGood));
+            meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters((decimal)nextGood)));
             await AssertNext(expected, cancel.Token);
         }
 

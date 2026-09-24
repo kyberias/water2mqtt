@@ -23,7 +23,7 @@ public interface IWaterMeterRaw
     string Manufacturer { get; }
     string Model { get; }
 
-    Task<Volume> GetNextValue(CancellationToken cancel);
+    Task<RawMeterReading> GetNextValue(CancellationToken cancel);
 }
 
 public interface IWaterMeterRawValueSink
@@ -31,14 +31,28 @@ public interface IWaterMeterRawValueSink
     void PostValue(Volume value);
 }
 
+public class RawMeterReading
+{
+    public RawMeterReading(Volume volume, byte[]? imageJpeg = null)
+    {
+        Volume = volume;
+        ImageJpeg = imageJpeg;
+    }
+
+    public Volume Volume { get; }
+    public byte[]? ImageJpeg { get; }
+}
+
 public class MeterReading
 {
-    public MeterReading(Volume volume, FlowRate? flowRate)
+    public MeterReading(Volume volume, FlowRate? flowRate, byte[]? imageJpeg = null)
     {
         Volume = volume;
         FlowRate = flowRate;
+        ImageJpeg = imageJpeg;
     }
 
     public Volume Volume { get; set; }
     public FlowRate? FlowRate { get; set; }
+    public byte[]? ImageJpeg { get; }
 }

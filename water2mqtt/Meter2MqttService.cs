@@ -69,27 +69,37 @@ public class Meter2MqttService : BackgroundService
     private IMqttClient? client;
     private readonly string topicRoot;
 
-    async Task Publish(Volume value, FlowRate? flowRate, CancellationToken cancel)
+    async Task Publish(MeterReading reading, CancellationToken cancel)
     {
         while (true)
         {
             try
             {
-                var cubes = value.ToCubicMeters();
+                var cubes = reading.Volume.ToCubicMeters();
 
                 await client.PublishStringAsync(topicRoot + "/WaterConsumption",
                     string.Create(CultureInfo.InvariantCulture, $"{cubes}"), cancellationToken: cancel);
 
-                if (flowRate != null)
+                if (reading.FlowRate != null)
                 {
                     await client.PublishStringAsync(topicRoot + "/WaterFlowRate",
-                        string.Create(CultureInfo.InvariantCulture, $"{flowRate.ToLitersPerMinute()}"),
+                        string.Create(CultureInfo.InvariantCulture, $"{reading.FlowRate.ToLitersPerMinute()}"),
                         cancellationToken: cancel);
                 }
 
-                await client.PublishStringAsync(topicRoot + "/WaterFaucet", flowRate != null && flowRate > FlowRate.Zero ? "ON" : "OFF", cancellationToken: cancel);
+                await client.PublishStringAsync(topicRoot + "/WaterFaucet", reading.FlowRate != null && reading.FlowRate > FlowRate.Zero ? "ON" : "OFF", cancellationToken: cancel);
 
-                log.LogInformation($"Published new value: {value}");
+                if (reading.ImageJpeg != null)
+                {
+                    await client.PublishAsync(new MqttApplicationMessage
+                    {
+                        Topic = topicRoot + "/WaterMeterImage",
+                        PayloadSegment = reading.ImageJpeg,
+                        ContentType = "image/jpeg"
+                    }, cancel);
+                }
+
+                log.LogInformation($"Published new value: {reading.Volume}");
                 break;
             }
             catch (MqttClientNotConnectedException ex)
@@ -159,6 +169,14 @@ public class Meter2MqttService : BackgroundService
             unique_id = uniqueId + "WaterFaucet",
         };
 
+        var imageAutoConfig = new
+        {
+            platform = "image",
+            image_topic = mqttTopicRoot + "/WaterMeterImage",
+            name = "Water meter image",
+            unique_id = uniqueId + "WaterMeterImage",
+        };
+
         var configTopic = $"homeassistant/device/{uniqueId}/config";
 
         var deviceDiscoveryPayload = new
@@ -174,7 +192,8 @@ public class Meter2MqttService : BackgroundService
             {
                 ZennerMNKWaterConsumption = waterAutoConfig,
                 ZennerMNKWaterFlowRate = flowRateAutoConfig,
-                ZennerMNKWaterFaucet = waterOnOffAutoConfig
+                ZennerMNKWaterFaucet = waterOnOffAutoConfig,
+                ZennerMNKWaterMeterImage = imageAutoConfig
             }
         };
 
@@ -203,7 +222,7 @@ public class Meter2MqttService : BackgroundService
             while (!cancel.IsCancellationRequested)
             {
                 var value = await meter.GetNextValue(cancel);
-                await Publish(value.Volume, value.FlowRate, cancel);
+                await Publish(value, cancel);
             }
         }
         catch (OperationCanceledException)

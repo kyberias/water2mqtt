@@ -59,7 +59,8 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
 
         while (!cancel.IsCancellationRequested)
         {
-            var proposedDecimals = await meter.GetNextValue(cancel);
+            var rawReading = await meter.GetNextValue(cancel);
+            var proposedDecimals = rawReading.Volume;
 
             bool goodValueChanged = false;
 
@@ -157,7 +158,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                     }
                 }
 
-                goodValues.Post(new MeterReading(total, flowRate));
+                goodValues.Post(new MeterReading(total, flowRate, rawReading.ImageJpeg));
 
                 previouslyReported.Add((now, total));
             }
