@@ -39,6 +39,11 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
         {
             var u = new[] { 0.0001m, 0.001m, 0.01m, 0.1m };
 
+            if (Math.Ceiling(decimalEstimates[0]) - decimalEstimates[0] < 0.02)
+            {
+                decimalEstimates[0] = Math.Ceiling(decimalEstimates[0]);
+            }
+
             for (int i = 1; i <= 3; i++)
             {
                 var prev = decimalEstimates[i - 1];
@@ -62,6 +67,18 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
         }
 
         return null;
+    }
+
+    public static decimal? ReadDecimalsFromImage(string imagePath, double rotateAngle,
+        ILogger<ZennerMnk>? logger = null)
+    {
+        using var image = CvInvoke.Imread(imagePath);
+        if (image.IsEmpty)
+        {
+            throw new InvalidDataException($"Could not read meter image: {imagePath}");
+        }
+
+        return AnalyzeImage(image, rotateAngle, logger, false)?.Decimals;
     }
 
     public ZennerMnk(ILogger<ZennerMnk> log, IConfiguration config)
@@ -155,162 +172,22 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
             var startOfAnalysis = DateTime.UtcNow;
 
-            CvInvoke.Imwrite("original.jpg", original);
+            var analysis = AnalyzeImage(original, rotateAngle, log, true);
 
-            var rotated = new Mat(new Size(original.Height, original.Width), original.Depth,
-                original.NumberOfChannels);
-
-            var rotationMatrix = new Mat(new Size(2, 2), DepthType.Cv32F, 1);
-            CvInvoke.GetRotationMatrix2D(new PointF(original.Width / 2, original.Height / 2), rotateAngle, 1,
-                rotationMatrix);
-            CvInvoke.WarpAffine(original, rotated, rotationMatrix, original.Size);
-
-            CvInvoke.Imwrite("rotated.jpg", rotated);
-
-            var gray = new Mat(new Size(rotated.Width, rotated.Height), rotated.Depth, rotated.NumberOfChannels);
-            CvInvoke.CvtColor(rotated, gray, ColorConversion.Rgb2Gray);
-            CvInvoke.Imwrite("gray.jpg", gray);
-
-            var param1 = 100; // Upper threshold for the internal Canny edge detector.
-            var param2 = 50; // Threshold for center detection.
-
-            var meterCircles = CvInvoke.HoughCircles(gray, HoughModes.Gradient, 1, 10, param1, param2, 50, 100);
-
-            var now = DateTimeOffset.UtcNow;
-
-            var mainCircles = meterCircles.Take(4).OrderBy(c => c.Center.X).ToList();
-
-            if (mainCircles.Count < 4)
-            {
-                log.LogWarning("Meter circles not found.");
-                continue;
-            }
-
-            if (CircleUtils.DoAnyCirclesOverlap(mainCircles))
-            {
-                log.LogWarning("Circles overlap.");
-                continue;
-            }
-
-            var angles = new List<double>();
-
-            int i = 0;
-            foreach (var circle in mainCircles)
-            {
-                var width = (int)(circle.Radius + 5) * 2;
-
-                var rect = new Rectangle(
-                    new Point((int)(circle.Center.X - width / 2), (int)(circle.Center.Y - width / 2)),
-                    new Size(width, width));
-
-                using var cropped = new Mat(rotated, rect);
-                //CvInvoke.Imwrite($"decCaptures\\{now.ToString("O").Replace(":", ".")}_{i}.jpg", cropped);
-
-                // Calculate the center of the image
-                double imageCenterX = cropped.Width / 2.0;
-                double imageCenterY = cropped.Height / 2.0;
-
-                var croppedWithBlackBorder = MaskWithBlack(cropped, (int)(0.85 * cropped.Width / 2.0));
-
-                CvInvoke.Imwrite($"withBorder{i}.jpg", croppedWithBlackBorder);
-
-                CvInvoke.Circle(croppedWithBlackBorder, new Point((int)imageCenterX, (int)imageCenterY),
-                    (int)(0.6 * cropped.Width / 2.0), new MCvScalar(0, 0, 0), -1);
-
-                //CvInvoke.Circle(image, new System.Drawing.Point(imageCenterX, imageCenterY), radius, new MCvScalar(0, 0, 0), -1);
-
-                CvInvoke.Imwrite($"withCircle{i}.jpg", croppedWithBlackBorder);
-
-                var hsv = new Mat();
-                CvInvoke.CvtColor(croppedWithBlackBorder, hsv, ColorConversion.Bgr2Hsv);
-
-                var lowerRed1 = new ScalarArray(new MCvScalar(0, 50, 50));
-                var upperRed1 = new ScalarArray(new MCvScalar(10, 255, 255));
-                var lowerRed2 = new ScalarArray(new MCvScalar(170, 50, 50));
-                var upperRed2 = new ScalarArray(new MCvScalar(180, 255, 255));
-
-                // Create masks for red
-                Mat mask1 = new Mat();
-                Mat mask2 = new Mat();
-                CvInvoke.InRange(hsv, lowerRed1, upperRed1, mask1);
-                CvInvoke.InRange(hsv, lowerRed2, upperRed2, mask2);
-
-                // Combine the masks
-                Mat redMask = new Mat();
-                CvInvoke.BitwiseOr(mask1, mask2, redMask);
-
-                CvInvoke.Imwrite($"redmask{i}.jpg", redMask);
-
-                using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
-                {
-                    Mat hierarchy = new Mat();
-                    CvInvoke.FindContours(redMask, contours, hierarchy, RetrType.External,
-                        ChainApproxMethod.ChainApproxSimple);
-
-                    if (contours.Length > 0)
-                    {
-                        var contourList = Enumerable.Range(0, contours.Size)
-                            .Select(i => new
-                                { Index = i, Contour = contours[i], Area = CvInvoke.ContourArea(contours[i]) })
-                            .ToList();
-
-                        var largestContour = contourList
-                            .OrderByDescending(c => c.Area)
-                            .FirstOrDefault();
-
-                        if (largestContour != null)
-                        {
-                            var moments = CvInvoke.Moments(largestContour.Contour);
-                            double contourMidX = moments.M10 / moments.M00;
-                            double contourMidY = moments.M01 / moments.M00;
-
-                            // Compute the angle in radians
-                            double angleRadians = Math.Atan2(contourMidY - imageCenterY, contourMidX - imageCenterX);
-
-                            // Convert to degrees
-                            double angleDegrees = (angleRadians * (180.0 / Math.PI) + 90 + 360) % 360;
-                            angles.Add(angleDegrees);
-
-                            log.LogTrace($"{i} Angle {angleDegrees}");
-
-                            // Draw the line from the center of the image to the midpoint of the contour
-                            //CvInvoke.Line(cropped, new System.Drawing.Point((int)imageCenterX, (int)imageCenterY),
-                            //  new System.Drawing.Point((int)contourMidX, (int)contourMidY), new MCvScalar(255, 0, 0), 2);
-                        }
-                    }
-                    else
-                    {
-                        log.LogWarning("Red contours not found.");
-                    }
-                }
-
-                i++;
-            }
-
-            foreach (var circle in mainCircles)
-            {
-                CvInvoke.Circle(rotated, new Point((int)circle.Center.X, (int)circle.Center.Y), (int)circle.Radius,
-                    new MCvScalar(0, 0, 255), 2);
-            }
-
-            CvInvoke.Imwrite("output.png", rotated);
-
-            decimal? proposedDecimals = AnglesToDecimals(angles);
-
-            if (proposedDecimals != null)
+            if (analysis?.Decimals is decimal proposedDecimals)
             {
                 log.LogTrace($"Proposed decimals: {proposedDecimals}");
 
                 values.Post(new RawMeterReading(
-                    Volume.FromCubicMeters(proposedDecimals.Value),
-                    CvInvoke.Imencode(".jpg", rotated)));
+                    Volume.FromCubicMeters(proposedDecimals),
+                    analysis.ImageJpeg));
             }
 
             log.LogTrace($"Analysis time: {DateTime.UtcNow - startOfAnalysis}");
 
             var sleepDelay = TimeSpan.FromSeconds(1);
 
-            while ((DateTimeOffset.UtcNow - now) < sleepDelay && !cancel.IsCancellationRequested)
+            while (DateTime.UtcNow - startOfAnalysis < sleepDelay && !cancel.IsCancellationRequested)
             {
                 await Task.Yield();
                 // Read and ignore frames while we wait.
@@ -318,6 +195,135 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
             }
         }
     }
+
+    private static ImageAnalysis? AnalyzeImage(Mat original, double rotateAngle, ILogger<ZennerMnk>? logger,
+        bool writeDebugImages)
+    {
+        if (writeDebugImages)
+        {
+            CvInvoke.Imwrite("original.jpg", original);
+        }
+
+        using var rotated = new Mat();
+        using var rotationMatrix = new Mat(new Size(2, 3), DepthType.Cv32F, 1);
+        CvInvoke.GetRotationMatrix2D(new PointF(original.Width / 2, original.Height / 2), rotateAngle, 1,
+            rotationMatrix);
+        CvInvoke.WarpAffine(original, rotated, rotationMatrix, original.Size);
+
+        if (writeDebugImages)
+        {
+            CvInvoke.Imwrite("rotated.jpg", rotated);
+        }
+
+        using var gray = new Mat();
+        CvInvoke.CvtColor(rotated, gray, ColorConversion.Bgr2Gray);
+        if (writeDebugImages)
+        {
+            CvInvoke.Imwrite("gray.jpg", gray);
+        }
+
+        var meterCircles = CvInvoke.HoughCircles(gray, HoughModes.Gradient, 1, 10, 100, 50, 25, 100);
+        var mainCircles = CircleUtils.GetLargestConsistentCircles(meterCircles.ToList(), 4);
+        logger?.LogTrace("Hough circles: {Circles}; selected {SelectedCircles}.",
+            string.Join(";", meterCircles.Select(circle =>
+                $"{circle.Center.X:F1},{circle.Center.Y:F1} r{circle.Radius:F1}")),
+            string.Join(";", mainCircles.Select(circle =>
+                $"{circle.Center.X:F1},{circle.Center.Y:F1} r{circle.Radius:F1}")));
+
+        if (mainCircles.Count < 4 || CircleUtils.DoAnyCirclesOverlap(mainCircles))
+        {
+            logger?.LogWarning("Meter circles not found or overlap.");
+            return null;
+        }
+
+        var angles = new List<double>();
+        for (var index = 0; index < mainCircles.Count; index++)
+        {
+            var circle = mainCircles[index];
+            var width = (int)(circle.Radius + 5) * 2;
+            var rect = new Rectangle(
+                new Point((int)(circle.Center.X - width / 2), (int)(circle.Center.Y - width / 2)),
+                new Size(width, width));
+
+            using var cropped = new Mat(rotated, rect);
+            var imageCenterX = cropped.Width / 2.0;
+            var imageCenterY = cropped.Height / 2.0;
+            using var croppedWithBlackBorder = MaskWithBlack(cropped, (int)(0.85 * cropped.Width / 2.0));
+
+            if (writeDebugImages)
+            {
+                CvInvoke.Imwrite($"withBorder{index}.jpg", croppedWithBlackBorder);
+            }
+
+            CvInvoke.Circle(croppedWithBlackBorder, new Point((int)imageCenterX, (int)imageCenterY),
+                (int)(0.6 * cropped.Width / 2.0), new MCvScalar(0, 0, 0), -1);
+
+            if (writeDebugImages)
+            {
+                CvInvoke.Imwrite($"withCircle{index}.jpg", croppedWithBlackBorder);
+            }
+
+            using var hsv = new Mat();
+            CvInvoke.CvtColor(croppedWithBlackBorder, hsv, ColorConversion.Bgr2Hsv);
+            using var mask1 = new Mat();
+            using var mask2 = new Mat();
+            CvInvoke.InRange(hsv, new ScalarArray(new MCvScalar(0, 50, 50)),
+                new ScalarArray(new MCvScalar(10, 255, 255)), mask1);
+            CvInvoke.InRange(hsv, new ScalarArray(new MCvScalar(170, 50, 50)),
+                new ScalarArray(new MCvScalar(180, 255, 255)), mask2);
+            using var redMask = new Mat();
+            CvInvoke.BitwiseOr(mask1, mask2, redMask);
+
+            if (writeDebugImages)
+            {
+                CvInvoke.Imwrite($"redmask{index}.jpg", redMask);
+            }
+
+            using var contours = new VectorOfVectorOfPoint();
+            using var hierarchy = new Mat();
+            CvInvoke.FindContours(redMask, contours, hierarchy, RetrType.External, ChainApproxMethod.ChainApproxSimple);
+
+            if (contours.Length == 0)
+            {
+                logger?.LogWarning("Red contours not found.");
+                continue;
+            }
+
+            var largestContour = Enumerable.Range(0, contours.Size)
+                .Select(contourIndex => contours[contourIndex])
+                .OrderByDescending(contour => CvInvoke.ContourArea(contour))
+                .First();
+            var moments = CvInvoke.Moments(largestContour);
+            if (moments.M00 == 0)
+            {
+                continue;
+            }
+
+            var contourMidX = moments.M10 / moments.M00;
+            var contourMidY = moments.M01 / moments.M00;
+            var angleRadians = Math.Atan2(contourMidY - imageCenterY, contourMidX - imageCenterX);
+            var angleDegrees = (angleRadians * (180.0 / Math.PI) + 90 + 360) % 360;
+            angles.Add(angleDegrees);
+            logger?.LogTrace("{Index} Angle {AngleDegrees}", index, angleDegrees);
+        }
+
+        foreach (var circle in mainCircles)
+        {
+            CvInvoke.Circle(rotated, new Point((int)circle.Center.X, (int)circle.Center.Y), (int)circle.Radius,
+                new MCvScalar(0, 0, 255), 2);
+        }
+
+        logger?.LogTrace("Found {AngleCount} needle angles.", angles.Count);
+
+        if (writeDebugImages)
+        {
+            CvInvoke.Imwrite("output.png", rotated);
+        }
+
+        return new ImageAnalysis(AnglesToDecimals(angles), CvInvoke.Imencode(".jpg", rotated));
+    }
+
+    private sealed record ImageAnalysis(decimal? Decimals, byte[] ImageJpeg);
 
     static Mat MaskWithBlack(Mat originalImage, int radius)
     {

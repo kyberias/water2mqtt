@@ -21,4 +21,10 @@
     <ProjectReference Include="..\water2mqtt\water2mqtt.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="testimages\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

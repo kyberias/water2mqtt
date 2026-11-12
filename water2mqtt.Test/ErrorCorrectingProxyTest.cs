@@ -210,6 +210,33 @@ public class ErrorCorrectingProxyTest
         await proxy.StopAsync(cancel.Token);
     }
 
+    [Fact]
+    public async Task RepeatedTooLargeReadingStaysRejectedUntilDifferentReadingIsValid()
+    {
+        using var cancel = new CancellationTokenSource(DefaultTimeout);
+        storage.Setup(s => s.LatestGood).Returns(Volume.FromCubicMeters(0m));
+
+        await proxy.StartAsync(cancel.Token);
+        await AssertNext(0d, cancel.Token);
+
+        AdvanceTime(TimeSpan.FromMinutes(1));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.9m)));
+        await AssertNext(0d, cancel.Token);
+
+        AdvanceTime(TimeSpan.FromMinutes(1));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.8m)));
+        await AssertNext(0d, cancel.Token);
+
+        AdvanceTime(TimeSpan.FromHours(1));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.9m)));
+        await AssertNext(0d, cancel.Token);
+
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.001m)));
+        await AssertNext(0.001d, cancel.Token);
+
+        await proxy.StopAsync(cancel.Token);
+    }
+
     async Task AssertNext(double expected, CancellationToken cancel)
     {
         Assert.Equal((decimal)expected, (await proxy.GetNextValue(cancel)).Volume.ToCubicMeters());

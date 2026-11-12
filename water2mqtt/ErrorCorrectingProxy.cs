@@ -60,6 +60,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
         DateTimeOffset? usageStart = null;
         DateTimeOffset? usageEnd = null;
         Volume? usageStartValue = null;
+        var rejectedReadings = new HashSet<Volume>();
 
         while (!cancel.IsCancellationRequested)
         {
@@ -78,74 +79,64 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
             }
             else if (knownGoodDecimals != null)
             {
-                //var newReading = proposedDecimals;
-
-                var detectedDecimalChange = proposedDecimals - knownGoodDecimals;
-                //var detectedIntegerChange = 0;
-
-                if (detectedDecimalChange < -Volume.FromCubicMeters(0.9m) && proposedDecimals < Volume.FromCubicMeters(0.050m) && knownGoodDecimals > Volume.FromCubicMeters(0.9m))
+                if (rejectedReadings.Contains(proposedDecimals))
                 {
-                    // This may indicate a cubic-meter rollover
-                    // E.g. 123,999 to 124,001
-                    //newReading += Volume.FromCubicMeters(1);
-                    detectedDecimalChange = (proposedDecimals + Volume.FromCubicMeters(1)) - knownGoodDecimals;
-                    //detectedIntegerChange = 1;
-                    log.LogWarning("Detected potential cubit-meter rollover.");
-                }
-
-                var timeDiff = now - knownGoodValueTimestamp.Value;
-                var maxFlow = FlowRate.FromLitersPerMinute(50);
-
-                if (timeDiff <= TimeSpan.Zero)
-                {
-                    log.LogWarning("Time difference is lower or equal to zero.");
-                    continue;
-                }
-
-                var change = new FlowRate(detectedDecimalChange, timeDiff);
-
-                if (change > maxFlow)
-                {
-                    log.LogWarning(
-                        $"Too large detected flow: {change.ToLitersPerMinute()} l / minute (change: {detectedDecimalChange} time: {timeDiff})");
-
-                    //tooLarge = newReading;
-                    //tooLargeTimeStamp = DateTime.UtcNow;
-
-                    //return;
-                }
-                else if (detectedDecimalChange < Volume.Zero)
-                {
-                    log.LogTrace($"Negative change: {detectedDecimalChange}");
+                    log.LogTrace($"Ignoring repeated rejected reading: {proposedDecimals}");
                 }
                 else
                 {
-                    if (detectedDecimalChange > Volume.Zero)
-                    {
-                        goodValueChanged = true;
+                    var detectedDecimalChange = proposedDecimals - knownGoodDecimals;
 
-                        usageStart ??= knownGoodValueTimestamp;
-                        usageStartValue ??= knownInteger + knownGoodDecimals;
-                        usageEnd = now;
+                    if (detectedDecimalChange < -Volume.FromCubicMeters(0.9m) && proposedDecimals < Volume.FromCubicMeters(0.050m) && knownGoodDecimals > Volume.FromCubicMeters(0.9m))
+                    {
+                        detectedDecimalChange = (proposedDecimals + Volume.FromCubicMeters(1)) - knownGoodDecimals;
+                        log.LogWarning("Detected potential cubit-meter rollover.");
                     }
 
-                    knownGoodDecimals += detectedDecimalChange;
+                    var timeDiff = now - knownGoodValueTimestamp.Value;
+                    var maxFlow = FlowRate.FromLitersPerMinute(50);
 
-                    if (knownGoodDecimals > Volume.FromCubicMeters(1))
+                    if (timeDiff <= TimeSpan.Zero)
                     {
-                        knownGoodDecimals -= Volume.FromCubicMeters(1);
-                        knownInteger += Volume.FromCubicMeters(1);
+                        log.LogWarning("Time difference is lower or equal to zero.");
+                        continue;
                     }
 
-                    //knownInteger += Volume.FromCubicMeters(detectedIntegerChange);
-                    knownGoodValueTimestamp = now;
+                    var change = new FlowRate(detectedDecimalChange, timeDiff);
 
-                    /*if (newReading == tooLarge && (knownGoodValueTimestamp - tooLargeTimeStamp) > TimeSpan.FromMinutes(1))
+                    if (change > maxFlow)
                     {
-                        var tooLargeCopy = $"toolarge_output_{tooLargeTimeStamp}.png";
-                        log.LogWarning($"New value was too large over a minute a ago! {tooLargeCopy}");
-                        File.Copy("output.png", tooLargeCopy);
-                    }*/
+                        log.LogWarning(
+                            $"Too large detected flow: {change.ToLitersPerMinute()} l / minute (change: {detectedDecimalChange} time: {timeDiff})");
+                        rejectedReadings.Add(proposedDecimals);
+                    }
+                    else if (detectedDecimalChange < Volume.Zero)
+                    {
+                        log.LogTrace($"Negative change: {detectedDecimalChange}");
+                    }
+                    else
+                    {
+                        if (detectedDecimalChange > Volume.Zero)
+                        {
+                            goodValueChanged = true;
+
+                            usageStart ??= knownGoodValueTimestamp;
+                            usageStartValue ??= knownInteger + knownGoodDecimals;
+                            usageEnd = now;
+                        }
+
+                        knownGoodDecimals += detectedDecimalChange;
+
+                        if (knownGoodDecimals > Volume.FromCubicMeters(1))
+                        {
+                            knownGoodDecimals -= Volume.FromCubicMeters(1);
+                            knownInteger += Volume.FromCubicMeters(1);
+                        }
+
+                        knownGoodValueTimestamp = now;
+                        rejectedReadings.Clear();
+
+                    }
                 }
             }
 
