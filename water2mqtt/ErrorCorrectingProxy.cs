@@ -29,7 +29,6 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
     private Volume? knownInteger;
     private Volume? knownGoodDecimals;
     private DateTimeOffset? knownGoodValueTimestamp;
-    private Task task;
     private readonly CancellationTokenSource cancellationTokenSource;
 
     private Volume? FullValue => knownInteger + knownGoodDecimals;
@@ -95,7 +94,9 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                         log.LogWarning("Detected potential cubit-meter rollover.");
                     }
 
-                    var timeDiff = now - knownGoodValueTimestamp.Value;
+                    knownGoodValueTimestamp ??= now;
+                    var previousReadingTimestamp = knownGoodValueTimestamp.GetValueOrDefault();
+                    var timeDiff = now - previousReadingTimestamp;
                     var maxFlow = FlowRate.FromLitersPerMinute(50);
 
                     if (timeDiff <= TimeSpan.Zero)

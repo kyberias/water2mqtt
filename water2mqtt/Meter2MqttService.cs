@@ -75,23 +75,25 @@ public class Meter2MqttService : BackgroundService
         {
             try
             {
+                var mqttClient = client ?? await Reconnect(cancel);
+                client = mqttClient;
                 var cubes = reading.Volume.ToCubicMeters();
 
-                await client.PublishStringAsync(topicRoot + "/WaterConsumption",
+                await mqttClient.PublishStringAsync(topicRoot + "/WaterConsumption",
                     string.Create(CultureInfo.InvariantCulture, $"{cubes}"), cancellationToken: cancel);
 
                 if (reading.FlowRate != null)
                 {
-                    await client.PublishStringAsync(topicRoot + "/WaterFlowRate",
+                    await mqttClient.PublishStringAsync(topicRoot + "/WaterFlowRate",
                         string.Create(CultureInfo.InvariantCulture, $"{reading.FlowRate.ToLitersPerMinute()}"),
                         cancellationToken: cancel);
                 }
 
-                await client.PublishStringAsync(topicRoot + "/WaterFaucet", reading.FlowRate != null && reading.FlowRate > FlowRate.Zero ? "ON" : "OFF", cancellationToken: cancel);
+                await mqttClient.PublishStringAsync(topicRoot + "/WaterFaucet", reading.FlowRate != null && reading.FlowRate > FlowRate.Zero ? "ON" : "OFF", cancellationToken: cancel);
 
                 if (reading.ImageJpeg != null)
                 {
-                    await client.PublishAsync(new MqttApplicationMessage
+                    await mqttClient.PublishAsync(new MqttApplicationMessage
                     {
                         Topic = topicRoot + "/WaterMeterImage",
                         PayloadSegment = reading.ImageJpeg
@@ -100,7 +102,7 @@ public class Meter2MqttService : BackgroundService
 
                 if (reading.RawImageJpeg != null)
                 {
-                    await client.PublishAsync(new MqttApplicationMessage
+                    await mqttClient.PublishAsync(new MqttApplicationMessage
                     {
                         Topic = topicRoot + "/WaterMeterRawImage",
                         PayloadSegment = reading.RawImageJpeg
@@ -120,7 +122,7 @@ public class Meter2MqttService : BackgroundService
                         end = usage.End
                     });
 
-                    await client.PublishStringAsync(topicRoot + "/WaterUsage", usagePayload,
+                    await mqttClient.PublishStringAsync(topicRoot + "/WaterUsage", usagePayload,
                         cancellationToken: cancel);
                 }
 

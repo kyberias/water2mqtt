@@ -14,11 +14,17 @@ namespace water2mqtt;
 public class ZennerMnk : BackgroundService, IWaterMeterRaw
 {
     private const int AnalysisReferenceHeight = 540;
+    private const float MaximumDialGeometryRmsError = 8;
+    private static readonly PointF[] MeterDialCenters =
+    [
+        new(1503, 480),
+        new(1647, 601),
+        new(1699, 781),
+        new(1593, 1014)
+    ];
 
     private readonly ILogger<ZennerMnk> log;
     private readonly IConfiguration config;
-
-    private Task? task;
 
     public string SerialNumber => "8ZRI1714922058";
     public string Manufacturer => "Zenner";
@@ -92,7 +98,6 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
     {
         Volume? knownInteger = null;
         Volume? knownGoodValue = initialKnownGood;
-        DateTimeOffset knownGoodValueTimestamp = default(DateTimeOffset);
 
         /*else if (args.Length == 1 && decimal.TryParse(args[0], out var parsedResult))
             {
@@ -143,8 +148,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
             throw new Exception("Camera not opened");
         }
 
-        Volume? tooLarge = null;
-        DateTime? tooLargeTimeStamp = null;
+        List<CircleF>? calibratedCircles = null;
 
         while (!cancel.IsCancellationRequested)
         {
@@ -173,7 +177,12 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
             var startOfAnalysis = DateTime.UtcNow;
 
-            var analysis = AnalyzeImage(original, rotateAngle, log, true);
+            var analysis = AnalyzeImage(original, rotateAngle, log, true, calibratedCircles);
+            if (calibratedCircles == null && analysis != null)
+            {
+                calibratedCircles = analysis.Circles;
+                log.LogInformation("Meter dial geometry calibrated; locking circle positions.");
+            }
 
             if (analysis?.Decimals is decimal proposedDecimals)
             {
@@ -199,7 +208,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
     }
 
     private static ImageAnalysis? AnalyzeImage(Mat original, double rotateAngle, ILogger<ZennerMnk>? logger,
-        bool writeDebugImages)
+        bool writeDebugImages, IReadOnlyList<CircleF>? lockedCircles = null)
     {
         if (writeDebugImages)
         {
@@ -242,7 +251,9 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
         }
 
         var meterCircles = CvInvoke.HoughCircles(gray, HoughModes.Gradient, 1, 10, 100, 50, 25, 100);
-        var mainCircles = CircleUtils.GetLargestConsistentCircles(meterCircles.ToList(), 4);
+        var modelPoints = GetRotatedModelPoints(normalized.Size, scale, rotateAngle);
+        var mainCircles = lockedCircles?.ToList() ?? CircleUtils.GetCirclesMatchingGeometry(
+            meterCircles.ToList(), modelPoints, MaximumDialGeometryRmsError);
         if (mainCircles.Count < 4 || CircleUtils.DoAnyCirclesOverlap(mainCircles))
         {
             logger?.LogWarning("Meter circles not found or overlap.");
@@ -336,10 +347,29 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
         }
 
         return new ImageAnalysis(AnglesToDecimals(angles), CvInvoke.Imencode(".jpg", outputRotated),
-            CvInvoke.Imencode(".jpg", original));
+            CvInvoke.Imencode(".jpg", original), mainCircles);
     }
 
-    private sealed record ImageAnalysis(decimal? Decimals, byte[] ImageJpeg, byte[] RawImageJpeg);
+    private static PointF[] GetRotatedModelPoints(Size imageSize, double scale, double rotateAngle)
+    {
+        var centerX = imageSize.Width / 2.0;
+        var centerY = imageSize.Height / 2.0;
+        var radians = rotateAngle * Math.PI / 180.0;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+
+        return MeterDialCenters.Select(point =>
+        {
+            var x = point.X * scale - centerX;
+            var y = point.Y * scale - centerY;
+            return new PointF(
+                (float)(cosine * x + sine * y + centerX),
+                (float)(-sine * x + cosine * y + centerY));
+        }).ToArray();
+    }
+
+    private sealed record ImageAnalysis(decimal? Decimals, byte[] ImageJpeg, byte[] RawImageJpeg,
+        List<CircleF> Circles);
 
     static Mat MaskWithBlack(Mat originalImage, int radius)
     {

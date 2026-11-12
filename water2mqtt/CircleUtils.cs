@@ -1,9 +1,115 @@
-﻿using Emgu.CV.Structure;
+﻿using System.Drawing;
+using Emgu.CV.Structure;
 
 namespace water2mqtt;
 
 public class CircleUtils
 {
+    public static List<CircleF> GetCirclesMatchingGeometry(List<CircleF> circles,
+        IReadOnlyList<PointF> modelPoints, float maximumRmsError, float minimumRadiusRatio = 0.75f)
+    {
+        if (modelPoints.Count == 0)
+        {
+            return [];
+        }
+
+        var candidates = circles
+            .Where(circle => circle.Radius > 0)
+            .OrderByDescending(circle => circle.Radius)
+            .Take(20)
+            .ToList();
+        if (candidates.Count < modelPoints.Count)
+        {
+            return [];
+        }
+
+        var modelCenterX = modelPoints.Average(point => point.X);
+        var modelCenterY = modelPoints.Average(point => point.Y);
+        var modelVariance = modelPoints.Sum(point =>
+            Math.Pow(point.X - modelCenterX, 2) + Math.Pow(point.Y - modelCenterY, 2));
+        if (modelVariance == 0)
+        {
+            return [];
+        }
+
+        var assigned = new CircleF[modelPoints.Count];
+        var used = new bool[candidates.Count];
+        CircleF[]? bestMatch = null;
+        var bestError = double.PositiveInfinity;
+        var bestRadiusRatio = 0.0;
+
+        void Search(int modelIndex)
+        {
+            if (modelIndex == modelPoints.Count)
+            {
+                var minRadius = assigned.Min(circle => circle.Radius);
+                var maxRadius = assigned.Max(circle => circle.Radius);
+                var radiusRatio = minRadius / maxRadius;
+                if (radiusRatio < minimumRadiusRatio || DoAnyCirclesOverlap(assigned.ToList()))
+                {
+                    return;
+                }
+
+                var observedCenterX = assigned.Average(circle => circle.Center.X);
+                var observedCenterY = assigned.Average(circle => circle.Center.Y);
+                var coefficientA = 0.0;
+                var coefficientB = 0.0;
+
+                for (var index = 0; index < modelPoints.Count; index++)
+                {
+                    var modelX = modelPoints[index].X - modelCenterX;
+                    var modelY = modelPoints[index].Y - modelCenterY;
+                    var observedX = assigned[index].Center.X - observedCenterX;
+                    var observedY = assigned[index].Center.Y - observedCenterY;
+                    coefficientA += modelX * observedX + modelY * observedY;
+                    coefficientB += modelX * observedY - modelY * observedX;
+                }
+
+                coefficientA /= modelVariance;
+                coefficientB /= modelVariance;
+
+                var squaredError = 0.0;
+                for (var index = 0; index < modelPoints.Count; index++)
+                {
+                    var modelX = modelPoints[index].X - modelCenterX;
+                    var modelY = modelPoints[index].Y - modelCenterY;
+                    var fittedX = observedCenterX + coefficientA * modelX - coefficientB * modelY;
+                    var fittedY = observedCenterY + coefficientB * modelX + coefficientA * modelY;
+                    squaredError += Math.Pow(assigned[index].Center.X - fittedX, 2) +
+                                    Math.Pow(assigned[index].Center.Y - fittedY, 2);
+                }
+
+                var rmsError = Math.Sqrt(squaredError / modelPoints.Count);
+                if (rmsError <= maximumRmsError &&
+                    (radiusRatio > bestRadiusRatio || radiusRatio == bestRadiusRatio && rmsError < bestError))
+                {
+                    bestError = rmsError;
+                    bestRadiusRatio = radiusRatio;
+                    bestMatch = assigned.ToArray();
+                }
+
+                return;
+            }
+
+            for (var candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
+            {
+                if (used[candidateIndex])
+                {
+                    continue;
+                }
+
+                assigned[modelIndex] = candidates[candidateIndex];
+                used[candidateIndex] = true;
+                Search(modelIndex + 1);
+                used[candidateIndex] = false;
+            }
+        }
+
+        Search(0);
+        // The model is ordered from tenths to ten-thousandths; angle conversion expects the reverse.
+        return bestMatch?.Reverse().ToList() ?? [];
+    }
+
     public static List<CircleF> GetLargestConsistentCircles(List<CircleF> circles, int count,
         float minimumRadiusRatio = 0.85f)
     {

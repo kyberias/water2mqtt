@@ -29,6 +29,12 @@ public class ReadingStorageFile : IReadingStorage
         {
             latestGood = value;
             LatestGoodTimestamp = time.GetUtcNow();
+            if (value is null)
+            {
+                File.Delete("knowngood.txt");
+                return;
+            }
+
             File.WriteAllText(
                 "knowngood.txt",
                 $"{value.ToCubicMeters().ToString(CultureInfo.InvariantCulture)} {LatestGoodTimestamp:O}"
