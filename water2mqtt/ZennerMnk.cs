@@ -54,7 +54,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
                 var ceil = Math.Ceiling(curr);
 
-                if (ceil - curr < 0.15 && prev < 4)
+                if (ceil - curr < 0.25 && prev < 4)
                 {
                     decimalEstimates[i] = Math.Ceiling(curr);
                 }
