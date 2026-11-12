@@ -5,36 +5,58 @@ namespace water2mqtt;
 public class CircleUtils
 {
     public static List<CircleF> GetLargestConsistentCircles(List<CircleF> circles, int count,
-        float minimumRadiusRatio = 0.9f)
+        float minimumRadiusRatio = 0.85f)
     {
         var ordered = circles
             .Where(circle => circle.Radius > 0)
             .OrderByDescending(circle => circle.Radius)
+            .Take(Math.Max(count, 20))
             .ToList();
 
         List<CircleF>? bestGroup = null;
+        var bestRadiusRatio = 0.0;
         var bestHorizontalSpan = 0.0;
         var bestAverageRadius = 0.0;
+        var candidateGroup = new List<CircleF>(count);
 
-        for (var start = 0; start <= ordered.Count - count; start++)
+        void SearchGroups(int start)
         {
-            var group = ordered.Skip(start).Take(count).ToList();
-            if (group[^1].Radius < group[0].Radius * minimumRadiusRatio || DoAnyCirclesOverlap(group))
+            if (candidateGroup.Count == count)
             {
-                continue;
+                var minimumRadius = candidateGroup.Min(circle => circle.Radius);
+                var maximumRadius = candidateGroup.Max(circle => circle.Radius);
+                var radiusRatio = minimumRadius / maximumRadius;
+                if (radiusRatio < minimumRadiusRatio || DoAnyCirclesOverlap(candidateGroup))
+                {
+                    return;
+                }
+
+                var horizontalSpan = candidateGroup.Max(circle => circle.Center.X) -
+                                     candidateGroup.Min(circle => circle.Center.X);
+                var averageRadius = candidateGroup.Average(circle => circle.Radius);
+                if (radiusRatio > bestRadiusRatio ||
+                    radiusRatio == bestRadiusRatio && averageRadius > bestAverageRadius ||
+                    radiusRatio == bestRadiusRatio && averageRadius == bestAverageRadius &&
+                    horizontalSpan > bestHorizontalSpan)
+                {
+                    bestRadiusRatio = radiusRatio;
+                    bestAverageRadius = averageRadius;
+                    bestHorizontalSpan = horizontalSpan;
+                    bestGroup = candidateGroup.ToList();
+                }
+
+                return;
             }
 
-            var horizontalSpan = group.Max(circle => circle.Center.X) - group.Min(circle => circle.Center.X);
-            var averageRadius = group.Average(circle => circle.Radius);
-            if (horizontalSpan > bestHorizontalSpan ||
-                horizontalSpan == bestHorizontalSpan && averageRadius > bestAverageRadius)
+            for (var index = start; index <= ordered.Count - (count - candidateGroup.Count); index++)
             {
-                bestHorizontalSpan = horizontalSpan;
-                bestAverageRadius = averageRadius;
-                bestGroup = group;
+                candidateGroup.Add(ordered[index]);
+                SearchGroups(index + 1);
+                candidateGroup.RemoveAt(candidateGroup.Count - 1);
             }
         }
 
+        SearchGroups(0);
         return bestGroup?.OrderBy(circle => circle.Center.X).ToList() ?? [];
     }
 
