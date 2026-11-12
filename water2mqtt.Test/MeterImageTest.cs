@@ -16,7 +16,9 @@ public class MeterImageTest
                 {
                     var imageFileName = Path.GetFileName(imagePath);
                     var expectedReading = decimal.Parse(
-                        Path.GetFileNameWithoutExtension(imageFileName).Replace(',', '.'), CultureInfo.InvariantCulture);
+                        Path.GetFileNameWithoutExtension(imageFileName)
+                            .Split('_', 2)[0]
+                            .Replace(',', '.'), CultureInfo.InvariantCulture);
                     var expectedDecimals = expectedReading - decimal.Truncate(expectedReading);
                     return new object[] { imageFileName, expectedDecimals };
                 });

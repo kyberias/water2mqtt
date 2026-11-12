@@ -69,6 +69,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
             var now = time.GetUtcNow();
 
             bool goodValueChanged = false;
+            var proposedReadingAccepted = false;
             WaterUsage? completedUsage = null;
 
             if (knownGoodDecimals == null)
@@ -76,6 +77,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                 knownGoodDecimals = proposedDecimals;
                 knownGoodValueTimestamp = now;
                 goodValueChanged = true;
+                proposedReadingAccepted = true;
             }
             else if (knownGoodDecimals != null)
             {
@@ -135,6 +137,7 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
 
                         knownGoodValueTimestamp = now;
                         rejectedReadings.Clear();
+                        proposedReadingAccepted = true;
 
                     }
                 }
@@ -168,7 +171,8 @@ public class ErrorCorrectingProxy : BackgroundService, IWaterMeter
                 }
 
                 goodValues.Post(new MeterReading(total, flowRate,
-                    rawReading.ImageJpeg, completedUsage));
+                    proposedReadingAccepted ? rawReading.ImageJpeg : null, completedUsage,
+                    proposedReadingAccepted ? rawReading.RawImageJpeg : null));
 
                 previouslyReported.Add((now, total));
             }

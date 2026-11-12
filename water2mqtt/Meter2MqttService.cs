@@ -98,6 +98,15 @@ public class Meter2MqttService : BackgroundService
                     }, cancel);
                 }
 
+                if (reading.RawImageJpeg != null)
+                {
+                    await client.PublishAsync(new MqttApplicationMessage
+                    {
+                        Topic = topicRoot + "/WaterMeterRawImage",
+                        PayloadSegment = reading.RawImageJpeg
+                    }, cancel);
+                }
+
                 if (reading.CompletedUsage != null)
                 {
                     var usage = reading.CompletedUsage;
@@ -189,8 +198,16 @@ public class Meter2MqttService : BackgroundService
         {
             platform = "image",
             image_topic = mqttTopicRoot + "/WaterMeterImage",
-            name = "Water meter image",
+            name = "Water meter analyzed image",
             unique_id = uniqueId + "WaterMeterImage",
+        };
+
+        var rawImageAutoConfig = new
+        {
+            platform = "image",
+            image_topic = mqttTopicRoot + "/WaterMeterRawImage",
+            name = "Water meter raw image",
+            unique_id = uniqueId + "WaterMeterRawImage",
         };
 
         var usageAutoConfig = new
@@ -219,6 +236,7 @@ public class Meter2MqttService : BackgroundService
                 ZennerMNKWaterFlowRate = flowRateAutoConfig,
                 ZennerMNKWaterFaucet = waterOnOffAutoConfig,
                 ZennerMNKWaterMeterImage = imageAutoConfig,
+                ZennerMNKWaterMeterRawImage = rawImageAutoConfig,
                 ZennerMNKWaterUsageCompleted = usageAutoConfig
             }
         };

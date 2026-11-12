@@ -33,30 +33,34 @@ public interface IWaterMeterRawValueSink
 
 public class RawMeterReading
 {
-    public RawMeterReading(Volume volume, byte[]? imageJpeg = null)
+    public RawMeterReading(Volume volume, byte[]? imageJpeg = null, byte[]? rawImageJpeg = null)
     {
         Volume = volume;
         ImageJpeg = imageJpeg;
+        RawImageJpeg = rawImageJpeg;
     }
 
     public Volume Volume { get; }
     public byte[]? ImageJpeg { get; }
+    public byte[]? RawImageJpeg { get; }
 }
 
 public class MeterReading
 {
     public MeterReading(Volume volume, FlowRate? flowRate, byte[]? imageJpeg = null,
-        WaterUsage? completedUsage = null)
+        WaterUsage? completedUsage = null, byte[]? rawImageJpeg = null)
     {
         Volume = volume;
         FlowRate = flowRate;
         ImageJpeg = imageJpeg;
         CompletedUsage = completedUsage;
+        RawImageJpeg = rawImageJpeg;
     }
 
     public Volume Volume { get; set; }
     public FlowRate? FlowRate { get; set; }
     public byte[]? ImageJpeg { get; }
+    public byte[]? RawImageJpeg { get; }
     public WaterUsage? CompletedUsage { get; }
 }
 

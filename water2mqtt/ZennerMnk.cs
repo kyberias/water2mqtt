@@ -181,7 +181,8 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
                 values.Post(new RawMeterReading(
                     Volume.FromCubicMeters(proposedDecimals),
-                    analysis.ImageJpeg));
+                    analysis.ImageJpeg,
+                    analysis.RawImageJpeg));
             }
 
             log.LogTrace($"Analysis time: {DateTime.UtcNow - startOfAnalysis}");
@@ -334,10 +335,11 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
             CvInvoke.Imwrite("output.png", outputRotated);
         }
 
-        return new ImageAnalysis(AnglesToDecimals(angles), CvInvoke.Imencode(".jpg", outputRotated));
+        return new ImageAnalysis(AnglesToDecimals(angles), CvInvoke.Imencode(".jpg", outputRotated),
+            CvInvoke.Imencode(".jpg", original));
     }
 
-    private sealed record ImageAnalysis(decimal? Decimals, byte[] ImageJpeg);
+    private sealed record ImageAnalysis(decimal? Decimals, byte[] ImageJpeg, byte[] RawImageJpeg);
 
     static Mat MaskWithBlack(Mat originalImage, int radius)
     {

@@ -91,16 +91,18 @@ public class ErrorCorrectingProxyTest
     {
         using var cancel = new CancellationTokenSource(DefaultTimeout);
         var imageJpeg = new byte[] { 1, 2, 3 };
+        var rawImageJpeg = new byte[] { 4, 5, 6 };
 
         await proxy.StartAsync(cancel.Token);
         await proxy.GetNextValue(cancel.Token);
 
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.2356m), imageJpeg));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.2356m), imageJpeg, rawImageJpeg));
 
         var reading = await proxy.GetNextValue(cancel.Token);
 
         Assert.Same(imageJpeg, reading.ImageJpeg);
+        Assert.Same(rawImageJpeg, reading.RawImageJpeg);
 
         await proxy.StopAsync(cancel.Token);
     }
@@ -110,16 +112,18 @@ public class ErrorCorrectingProxyTest
     {
         using var cancel = new CancellationTokenSource(DefaultTimeout);
         var imageJpeg = new byte[] { 1, 2, 3 };
+        var rawImageJpeg = new byte[] { 4, 5, 6 };
 
         await proxy.StartAsync(cancel.Token);
         await proxy.GetNextValue(cancel.Token);
 
         AdvanceTime(TimeSpan.FromMinutes(1));
-        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0m), imageJpeg));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.2355m), imageJpeg, rawImageJpeg));
 
         var reading = await proxy.GetNextValue(cancel.Token);
 
         Assert.Same(imageJpeg, reading.ImageJpeg);
+        Assert.Same(rawImageJpeg, reading.RawImageJpeg);
 
         await proxy.StopAsync(cancel.Token);
     }
@@ -234,6 +238,29 @@ public class ErrorCorrectingProxyTest
 
         meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.001m)));
         await AssertNext(0.001d, cancel.Token);
+
+        await proxy.StopAsync(cancel.Token);
+    }
+
+    [Fact]
+    public async Task RejectedReadingDoesNotIncludeSourceImage()
+    {
+        using var cancel = new CancellationTokenSource(DefaultTimeout);
+        storage.Setup(s => s.LatestGood).Returns(Volume.FromCubicMeters(0m));
+        var rejectedImage = new byte[] { 9, 8, 7 };
+        var rejectedRawImage = new byte[] { 6, 5, 4 };
+
+        await proxy.StartAsync(cancel.Token);
+        await AssertNext(0d, cancel.Token);
+
+        AdvanceTime(TimeSpan.FromMinutes(1));
+        meterReadings.Post(new RawMeterReading(Volume.FromCubicMeters(0.9m), rejectedImage, rejectedRawImage));
+
+        var reading = await proxy.GetNextValue(cancel.Token);
+
+        Assert.Equal(0m, reading.Volume.ToCubicMeters());
+        Assert.Null(reading.ImageJpeg);
+        Assert.Null(reading.RawImageJpeg);
 
         await proxy.StopAsync(cancel.Token);
     }
