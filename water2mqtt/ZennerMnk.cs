@@ -13,6 +13,8 @@ namespace water2mqtt;
 
 public class ZennerMnk : BackgroundService, IWaterMeterRaw
 {
+    private const int AnalysisReferenceHeight = 540;
+
     private readonly ILogger<ZennerMnk> log;
     private readonly IConfiguration config;
 
@@ -69,8 +71,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
         return null;
     }
 
-    public static decimal? ReadDecimalsFromImage(string imagePath, double rotateAngle,
-        ILogger<ZennerMnk>? logger = null)
+    public static decimal? ReadDecimalsFromImage(string imagePath, double rotateAngle)
     {
         using var image = CvInvoke.Imread(imagePath);
         if (image.IsEmpty)
@@ -78,7 +79,7 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
             throw new InvalidDataException($"Could not read meter image: {imagePath}");
         }
 
-        return AnalyzeImage(image, rotateAngle, logger, false)?.Decimals;
+        return AnalyzeImage(image, rotateAngle, null, false)?.Decimals;
     }
 
     public ZennerMnk(ILogger<ZennerMnk> log, IConfiguration config)
@@ -204,15 +205,32 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
             CvInvoke.Imwrite("original.jpg", original);
         }
 
+        using var normalized = new Mat();
+        var scale = Math.Min(1.0, (double)AnalysisReferenceHeight / original.Height);
+        CvInvoke.Resize(original, normalized, Size.Empty, scale, scale, Inter.Linear);
+
         using var rotated = new Mat();
         using var rotationMatrix = new Mat(new Size(2, 3), DepthType.Cv32F, 1);
-        CvInvoke.GetRotationMatrix2D(new PointF(original.Width / 2, original.Height / 2), rotateAngle, 1,
+        CvInvoke.GetRotationMatrix2D(new PointF(normalized.Width / 2, normalized.Height / 2), rotateAngle, 1,
             rotationMatrix);
-        CvInvoke.WarpAffine(original, rotated, rotationMatrix, original.Size);
+        CvInvoke.WarpAffine(normalized, rotated, rotationMatrix, normalized.Size);
+
+        using var outputRotated = new Mat();
+        if (scale < 1.0)
+        {
+            using var outputRotationMatrix = new Mat(new Size(2, 3), DepthType.Cv32F, 1);
+            CvInvoke.GetRotationMatrix2D(new PointF(original.Width / 2, original.Height / 2), rotateAngle, 1,
+                outputRotationMatrix);
+            CvInvoke.WarpAffine(original, outputRotated, outputRotationMatrix, original.Size);
+        }
+        else
+        {
+            rotated.CopyTo(outputRotated);
+        }
 
         if (writeDebugImages)
         {
-            CvInvoke.Imwrite("rotated.jpg", rotated);
+            CvInvoke.Imwrite("rotated.jpg", outputRotated);
         }
 
         using var gray = new Mat();
@@ -224,12 +242,6 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
         var meterCircles = CvInvoke.HoughCircles(gray, HoughModes.Gradient, 1, 10, 100, 50, 25, 100);
         var mainCircles = CircleUtils.GetLargestConsistentCircles(meterCircles.ToList(), 4);
-        logger?.LogTrace("Hough circles: {Circles}; selected {SelectedCircles}.",
-            string.Join(";", meterCircles.Select(circle =>
-                $"{circle.Center.X:F1},{circle.Center.Y:F1} r{circle.Radius:F1}")),
-            string.Join(";", mainCircles.Select(circle =>
-                $"{circle.Center.X:F1},{circle.Center.Y:F1} r{circle.Radius:F1}")));
-
         if (mainCircles.Count < 4 || CircleUtils.DoAnyCirclesOverlap(mainCircles))
         {
             logger?.LogWarning("Meter circles not found or overlap.");
@@ -309,7 +321,9 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
         foreach (var circle in mainCircles)
         {
-            CvInvoke.Circle(rotated, new Point((int)circle.Center.X, (int)circle.Center.Y), (int)circle.Radius,
+            CvInvoke.Circle(outputRotated,
+                new Point((int)(circle.Center.X / scale), (int)(circle.Center.Y / scale)),
+                (int)(circle.Radius / scale),
                 new MCvScalar(0, 0, 255), 2);
         }
 
@@ -317,10 +331,10 @@ public class ZennerMnk : BackgroundService, IWaterMeterRaw
 
         if (writeDebugImages)
         {
-            CvInvoke.Imwrite("output.png", rotated);
+            CvInvoke.Imwrite("output.png", outputRotated);
         }
 
-        return new ImageAnalysis(AnglesToDecimals(angles), CvInvoke.Imencode(".jpg", rotated));
+        return new ImageAnalysis(AnglesToDecimals(angles), CvInvoke.Imencode(".jpg", outputRotated));
     }
 
     private sealed record ImageAnalysis(decimal? Decimals, byte[] ImageJpeg);

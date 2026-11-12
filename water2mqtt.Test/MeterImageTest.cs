@@ -1,19 +1,10 @@
 using System.Globalization;
-using Neovolve.Logging.Xunit;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace water2mqtt.Test;
 
 public class MeterImageTest
 {
-    private readonly Microsoft.Extensions.Logging.ILogger<ZennerMnk> logger;
-
-    public MeterImageTest(ITestOutputHelper output)
-    {
-        logger = output.BuildLoggerFor<ZennerMnk>();
-    }
-
     [Fact]
     public void ReadsDecimalDigitsFromImagesNamedWithExpectedReading()
     {
@@ -28,7 +19,7 @@ public class MeterImageTest
                 Path.GetFileNameWithoutExtension(imagePath).Replace(',', '.'), CultureInfo.InvariantCulture);
             var expectedDecimals = expectedReading - decimal.Truncate(expectedReading);
 
-            var actualDecimals = ZennerMnk.ReadDecimalsFromImage(imagePath, 270, logger);
+            var actualDecimals = ZennerMnk.ReadDecimalsFromImage(imagePath, 270);
 
             Assert.True(actualDecimals == expectedDecimals,
                 $"{Path.GetFileName(imagePath)}: expected {expectedDecimals}, got {actualDecimals}");
