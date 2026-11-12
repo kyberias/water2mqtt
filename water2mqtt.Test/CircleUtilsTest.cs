@@ -27,7 +27,12 @@ public class CircleUtilsTest
                 (float)(300 + x * Math.Sin(rotation) + y * Math.Cos(rotation))), 10);
         }).ToArray();
         var detections = expectedInModelOrder
-            .Concat(new[] { new CircleF(new PointF(800, 100), 10) })
+            .Concat(new[]
+            {
+                new CircleF(new PointF(800, 100), 10),
+                new CircleF(new PointF(expectedInModelOrder[0].Center.X + 4,
+                    expectedInModelOrder[0].Center.Y - 3), 22)
+            })
             .ToList();
 
         var selected = CircleUtils.GetCirclesMatchingGeometry(detections, modelPoints, 1);
@@ -37,6 +42,24 @@ public class CircleUtilsTest
         {
             Assert.Equal(expectedInModelOrder[^(index + 1)].Center, selected[index].Center);
         }
+    }
+
+    [Fact]
+    public void RejectsGeometryMatchWithOneMuchSmallerCircle()
+    {
+        var modelPoints = new[]
+        {
+            new PointF(1503, 480),
+            new PointF(1647, 601),
+            new PointF(1699, 781),
+            new PointF(1593, 1014)
+        };
+        var circles = modelPoints.Select((point, index) =>
+            new CircleF(new PointF(point.X * 0.3f + 50, point.Y * 0.3f + 30), index == 0 ? 22 : 30)).ToList();
+
+        var selected = CircleUtils.GetCirclesMatchingGeometry(circles, modelPoints, 1);
+
+        Assert.Empty(selected);
     }
 
     [Fact]

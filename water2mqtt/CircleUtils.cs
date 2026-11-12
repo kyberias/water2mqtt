@@ -6,7 +6,7 @@ namespace water2mqtt;
 public class CircleUtils
 {
     public static List<CircleF> GetCirclesMatchingGeometry(List<CircleF> circles,
-        IReadOnlyList<PointF> modelPoints, float maximumRmsError, float minimumRadiusRatio = 0.75f)
+        IReadOnlyList<PointF> modelPoints, float maximumRmsError, float minimumRadiusRatio = 0.88f)
     {
         if (modelPoints.Count == 0)
         {
